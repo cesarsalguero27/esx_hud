@@ -1,14 +1,47 @@
-name: Add issue or pull request to project board
-
+name: Move Issue Principal to Done when all sub-issues are closed
 on:
   issues:
-    types:
-      - opened
-  pull_request_target:
-    types: 
-      - opened
+    types: [closed]
 
 jobs:
-  auto-move-project-cards:
-    uses: esx-framework/.github/.github/workflows/automatic-add-issue-to-board.yml@main
-    secrets: inherit
+  check-subissues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Issue Principal
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const octokit = github.rest;
+
+            // Buscar el issue principal al que pertenece este sub-issue
+            const { data: parentIssue } = await octokit.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.parent_id // Asegúrate de que el sub-issue tenga un parent_id vinculado
+            });
+
+            // Obtener lista de sub-issues abiertos
+            const { data: subIssues } = await octokit.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: `sub-issue-${parentIssue.number}`
+            });
+
+            // Si no quedan sub-issues abiertos, mover el Issue Principal a "Done"
+            if (subIssues.length === 0) {
+              await octokit.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parentIssue.number,
+                state: "closed"
+              });
+
+              await octokit.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parentIssue.number,
+                body: "✅ Todos los sub-issues han sido completados. Este Issue Principal se ha movido a 'Done' automáticamente. 🚀"
+              });
+            }
